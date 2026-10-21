@@ -1,5 +1,37 @@
 # CHANGELOG
 
+## 0.1.6 — 2026-10-21 — 修非单调 surface seq 导致的丢块与错位
+
+**现象**：`b150e7bd` 在 11:07:45 自动压缩，摘要写了 12 片，台账只进了 **11 块**；
+块 1 的 `start_seq=13124` 却小于 `compaction/summary` 的 `shadowedRange.start=13158`。
+
+**根因**：DSH 的 surface seq **不是单调递增的**。一次折叠会用「新生成的替换节点」
+（seq 很大）占住旧位置，所以下一次折叠拿到的 `shadowedSeqs` 在数值上会来回跳：
+
+```
+shadowedSeqs[0] = 13158
+shadowedSeqs[1] = 12451   ← 比前一个小
+```
+
+0.1.0–0.1.5 的 `appendBlock()` 靠 `startSeq <= endSeq` 校验区间、靠
+「区间重叠就拒绝」保护台账。非单调时：
+
+- 首节点 > 尾节点的那一片直接抛 `bad block range`，被 `logger.warn` 吞掉 → **丢块**（12 片只进 11 块）
+- 其余块的 `start/end` 取的是首尾节点，跟真实区间无关 → **错位**
+
+**修复**：
+
+1. `blocks` 新增 `seq_list` 列（TEXT，surface 顺序的 seq 数组），schema 版本 1 → 2，自动 `ALTER TABLE`
+2. `start_seq/end_seq` 改为该片的 `min..max`，只用于展示与排序
+3. `appendBlock()` 的保护区从「区间重叠」改为「同 `(start,end)` 重复」——非单调区间本来就会互相包含，重叠检查是误报源
+4. `_record()` 传 `seqs` 与 `min..max`
+
+**数据修复**：从会话日志重放 `b150e7bd` 的 5 次压缩（含 10-16 的 3 次单发摘要、
+10-21 的 12 片与 3 片），共写回 **18 块**，`PRAGMA integrity_check = ok`；
+原来的 11 块（区间错位、缺 1 片）已删除，删除前快照留在 `/tmp/ledger-snapshot.db`。
+
+**测试**：新增「非单调 seq 分片可落库并保留顺序」「同区间重复拒绝」两项，共 17 项全过。
+
 ## 0.1.5 — 2026-10-21 — 修复手动 `/compact` 台账不落账（静默 no-op）
 
 **现象**：10:07:25 手动 `/compact` 成功（`compaction/end` 无 error，摘要 5 片、

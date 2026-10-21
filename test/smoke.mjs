@@ -47,18 +47,34 @@ check("写入与水位", () => {
   assert.equal(id, 1);
   assert.equal(db.getWatermark(sid), 10);
 });
-check("重叠拒绝", () => {
-  assert.throws(() => db.appendBlock(sid, { startSeq: 5, endSeq: 12, tokens: 10, summary: "x" }), RangeError);
+check("同区间重复拒绝（区间重叠改为允许）", () => {
+  assert.throws(() => db.appendBlock(sid, { startSeq: 1, endSeq: 10, tokens: 10, summary: "dup" }), RangeError);
+  // 非单调 surface 会让不同片的区间互相包含，这种必须放行
+  db.appendBlock(sid, { startSeq: 5, endSeq: 12, tokens: 10, summary: "overlap ok" });
+});
+check("非单调 seq 分片可落库并保留顺序", () => {
+  const unordered = [20, 3, 15];
+  db.appendBlock(sid, {
+    startSeq: Math.min(...unordered),
+    endSeq: Math.max(...unordered),
+    seqs: unordered,
+    tokens: 7,
+    summary: "non-monotonic",
+  });
+  const row = db.listBlocks(sid).find((b) => b.summary === "non-monotonic");
+  assert.equal(row.startSeq, 3);
+  assert.equal(row.endSeq, 20);
+  assert.deepEqual(JSON.parse(row.seqList), [20, 3, 15]);
 });
 check("原文往返", () => {
   assert.equal(db.getOriginal(sid, 1), "line1\nline2");
   assert.equal(db.getOriginal(sid, 99), null);
 });
 check("摘要检索", () => {
-  db.appendBlock(sid, { startSeq: 11, endSeq: 20, tokens: 10, summary: "beta overflow retry" });
+  db.appendBlock(sid, { startSeq: 21, endSeq: 30, tokens: 10, summary: "beta overflow retry" });
   const hits = db.searchSummaries(sid, "overflow", 10);
   assert.equal(hits.length, 1);
-  assert.equal(hits[0].id, 2);
+  assert.equal(hits[0].summary, "beta overflow retry");
 });
 db.close();
 rmSync(dir, { recursive: true, force: true });
