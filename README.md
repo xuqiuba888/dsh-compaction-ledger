@@ -120,3 +120,19 @@ dsh plugin --profile web add file:./dsh-compaction-ledger-0.1.0.tgz
 移除 bili 不会丢历史：会话原文一直在
 `$DSH_HOME/sessions/<workspace>/<session>/session.v4.jsonl.zstd`，
 bili 只保存折叠台账。本包的台账从安装后第一次折叠开始积累。
+
+## 升级 dsh 之后必须做的一步
+
+`cordis.patch.yml` 是 `preset-standard` 的**全量快照**（见文件头注释）。dsh 升级后 preset 可能新增或改动插件，而快照不会自动跟随——插件会继续按旧 preset 形状运行。
+
+升级后执行：
+
+```bash
+cd /root/.dsh/local-plugins/dsh-compaction-ledger
+npm run check:preset      # 退出码 1 表示快照已过期
+npm run sync:preset       # 重新生成 cordis.patch.yml
+npm pack                  # 升 version 后重新打包含新快照
+dsh plugin --profile web add file:./dsh-compaction-ledger-<新版本>.tgz
+```
+
+插件启动时也会自检：快照盖章的 dsh 版本与当前运行的 `@deepseek-ai/dsh-base` 版本不一致时，日志里会打一行 `compaction-ledger: preset 快照来自 dsh X，当前运行 Y …`。
