@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## 0.1.7 — 2026-10-21 — 台账原文保留工具调用参数
+
+**问题**：`messageText()` 只对 `text` 块取值，其余一律写成 `[tool-call]`
+这类占位符。结果台账里 agent 的每一条 bash/read 调用**参数全部丢失**，
+只剩 `{"seq":24520,"role":"assistant","text":"[reasoning]\n[tool-call]"}`——
+恢复历史时看不到"当时到底跑了什么命令"。
+
+**修复**：
+
+- `text` 块原样保留
+- `tool-call` 块写成 `[tool-call <name>] <arguments>`
+- `reasoning` 块**不入档**（体积大、检索价值低，原始推理仍在会话日志里）
+- 其余块保留类型占位
+
+**影响**：`messageText()` 同时用于分片估算，估算值随之更接近真实 payload
+（工具参数本来就要占 token），分片只会更保守，不会更激进。
+
+**数据修复**：按新格式重放 `b150e7bd` 的 18 块，覆盖 8,310 个 seq、水位 25,374，
+`integrity_check = ok`；样例可看到完整 `bash` 命令与 `description`。
+
 ## 0.1.6 — 2026-10-21 — 修非单调 surface seq 导致的丢块与错位
 
 **现象**：`b150e7bd` 在 11:07:45 自动压缩，摘要写了 12 片，台账只进了 **11 块**；
