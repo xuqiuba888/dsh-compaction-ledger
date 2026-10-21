@@ -7,6 +7,8 @@ DeepSeek Harness 的**进程内**上下文压缩引擎。替换宿主默认的 `
 > bundled `compaction-basic` service and adds chunked summarization, a SQLite
 > ledger, and bounded retrieval tools. See 「设计要点」for details.
 
+当前版本 **0.1.7** ｜ 仓库 <https://github.com/xuqiuba888/dsh-compaction-ledger>
+
 ## 为什么写它
 
 宿主自带的压缩是「一次事务把整段历史发给模型，换回一条摘要」。两个后果：
@@ -20,13 +22,22 @@ DeepSeek Harness 的**进程内**上下文压缩引擎。替换宿主默认的 `
 
 ## 安装
 
+从 GitHub 直接装（换机器也能一条命令装好）：
+
+```bash
+dsh plugin --profile web add git+https://github.com/xuqiuba888/dsh-compaction-ledger.git
+```
+
+改了本地源码后重装：
+
 ```bash
 cd /root/.dsh/local-plugins/dsh-compaction-ledger
 npm pack
-dsh plugin --profile web add file:./dsh-compaction-ledger-0.1.0.tgz
+dsh plugin --profile web add file:./dsh-compaction-ledger-0.1.7.tgz
 ```
 
-安装后重启 DSH 会话进程生效。卸载：
+安装/升级后**由用户重启** DSH 会话进程生效（插件在进程启动时构造引擎）。
+卸载：
 
 ```bash
 dsh plugin --profile web remove dsh-compaction-ledger
@@ -48,7 +59,7 @@ dsh plugin --profile web remove dsh-compaction-ledger
 
 ```
 ledger.db
-├── blocks(id, session_id, start_seq, end_seq, tier, tokens,
+├── blocks(id, session_id, start_seq, end_seq, seq_list, tier, tokens,
 │          summary, orig_gz, orig_chars, created_at)
 ├── sessions(session_id, last_seq, updated_at)
 └── ledger_meta(k, v)
@@ -56,8 +67,10 @@ ledger.db
 
 - `summary` 常驻上下文（折叠后的那条 checkpoint 就是它拼出来的）
 - `orig_gz` 是 gzip 后的原文 JSONL，`decompress` 按需解压
+- `seq_list` 是这一块**真实的** surface seq 序列（JSON 数组），顺序即消息顺序
+- `start_seq/end_seq` 只记该块 seq 的 `min..max`，仅供排序与展示
 - 「写块 + 推进水位」在同一事务内提交（`BEGIN IMMEDIATE`），崩溃不留半条折叠
-- 区间重叠直接抛错，绝不静默覆盖
+- 去重按「同会话 + 同 `start_seq/end_seq`」精确判断，同一段重复折叠不会写两份
 
 ## 两个工具
 
@@ -84,14 +97,22 @@ result，并且污染工作区、无人清理。所有返回都是片段，永�
   所以 DSH 的会话投影与持久化语义不受影响。
 - **钩子只有一个**：`summarize(input, agent, signal)`。超限就切片，逐片调用
   `super.summarize`，再把各片摘要按顺序合并成一条 checkpoint 摘要。
-- **seq 映射**：`compactRegion(start, end)` 被重写，用来记录本次折叠的
-  surface seq 区间，`summarize` 再把每片消息映射回真实 seq 写进台账。
+- **两条入口都要记账**：自动压缩走 `compactRegion(start, end)`，而 `/compact`
+  手动路径在基类里是 `compactNow()` → `compactSurfaceRegion()`——**不经过
+  `compactRegion`**。本包因此重写 `compactNow`，用手动路径返回的
+  `CompactionResult.shadowedSeqs` 补记，否则手动折叠会静默不落账。
+- **seq 不单调**：折叠后的替换节点带着一个很大的 seq 却占据旧的 surface 位置，
+  所以一块的 `seq_list[0]` 未必是最小值。落库时 `start_seq/end_seq` 取
+  `min/max`，消息顺序完全以 `seq_list` 为准，绝不按 seq 数值重排。
+- **分片不切断工具配对**：只有在非 tool 消息前才切，且不产生以 tool-result
+  开头的片；否则宿主会以「tool calls need immediate results」整段拒绝。
 
 ## 已知限制（v1）
 
 - 检索是 `LIKE` 子串匹配，没有向量索引；原文检索是逐块扫描（扫描量封顶 8MB）。
 - `tier` 字段已预留但尚未做 T1→T3 分级蒸馏。
-- 摘要质量直接取决于分片切点；切点不感知工具调用配对（配对由基类在区间层面保证）。
+- 分片切点按渲染后的字符数估算 token，偏保守（片数略多，但不会漏配对、不会超窗）。
+- 摘要质量直接取决于分片切点，不感知对话的语义边界。
 
 ## License
 
@@ -113,8 +134,7 @@ MIT
 
 ```bash
 dsh plugin --profile web remove billion-context
-npm pack
-dsh plugin --profile web add file:./dsh-compaction-ledger-0.1.0.tgz
+dsh plugin --profile web add git+https://github.com/xuqiuba888/dsh-compaction-ledger.git
 ```
 
 移除 bili 不会丢历史：会话原文一直在
