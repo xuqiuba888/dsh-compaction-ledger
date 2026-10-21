@@ -1,0 +1,5 @@
+# 用本实现接管宿主默认的压缩引擎。
+# id 必须保持 compaction-basic，Cordis 才能把 compaction 服务槽指向本包。
+# 本包不引入新的配置键：基类的 Config 校验保持原样，台账路径与分片预算走环境变量。
+- id: compaction-basic
+  name: dsh-compaction-ledger

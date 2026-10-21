@@ -1,0 +1,13 @@
+{
+  "name": "dsh-compaction-ledger",
+  "version": "0.1.0",
+  "description": "In-process compaction engine for DeepSeek Harness with a SQLite ledger and bounded retrieval tools.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": { ".": "./lib/index.js" },
+  "files": ["lib", "cordis.patch.yml", "README.md", "LICENSE"],
+  "engines": { "node": ">=22.5.0" },
+  "keywords": ["dsh-plugin", "compaction", "context", "sqlite", "ledger"],
+  "license": "MIT",
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}
