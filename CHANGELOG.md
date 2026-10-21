@@ -1,5 +1,36 @@
 # CHANGELOG
 
+## 0.1.5 — 2026-10-21 — 修复手动 `/compact` 台账不落账（静默 no-op）
+
+**现象**：10:07:25 手动 `/compact` 成功（`compaction/end` 无 error，摘要 5 片、
+input 411,612 tok、上下文 364,577 → 33,614 tok），但
+`ledger.db` 里 `blocks = 0`、`sessions = 0`，WAL 零字节——一次事务都没提交。
+
+**根因**：基类的两条压缩入口不对称：
+
+```js
+compactIfNeeded() → this.compactRegion(...)        // 自动路径，命中我们的 override
+compactNow()      → compactSurfaceRegion(...)      // 手动路径，直接调模块函数
+```
+
+`/compact` 走的是 `compactNow()`，**根本不经过 `this.compactRegion()`**，
+因此 `this.span` 始终是 `undefined`，`_record()` 第一行就 `return` 了，
+既不抛错也不打日志。0.1.0–0.1.4 的手动压缩从未写过台账（自动压缩也从未触发过）。
+
+**修复**：
+
+1. 新增 `compactNow()` override：`super` 返回后用 `result.shadowedSeqs`
+   （`CompactionResult` 的权威字段）补账；
+2. `summarize()` 把分片暂存到 `this.pending`，供手动路径复用；
+3. `_record(items, { seqs, sessionId })` 支持显式区间，返回实际写入块数；
+4. 分片与 seq 的对齐抽成 `alignChunks()` 并导出——`buildSummarizationInput`
+   会额外前置 system head，之前会让整段 seq **错位一格**；
+5. 手动路径若拿不到分片，打 `logger.warn`，不再静默。
+
+**测试**：新增 3 项对齐断言（含 system 前置、超额前缀丢弃），共 16 项全过；
+另用临时库模拟手动路径实测：4 个 seq / 2 片 → 写 2 块，`8..10` + `11..11`，
+原文按 `{"seq":..,"role":..,"text":..}` 逐行存档，水位推进到 11。
+
 ## 0.1.4 — 2026-10-21 — 修复分片切断 tool-call/tool-result 配对
 
 **现象**：手动 `/compact` 返回

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { resolveBudget, resolveSpec, parseLimit, retrievalCap } from "../lib/budget.js";
 import { Ledger } from "../lib/ledger.js";
 import { planRange, planChunks } from "../lib/fold.js";
-import { splitMessages } from "../lib/index.js";
+import { splitMessages, alignChunks } from "../lib/index.js";
 
 let pass = 0;
 const check = (name, fn) => { fn(); pass += 1; console.log(`  ok  ${name}`); };
@@ -96,6 +96,34 @@ check("分片不在 tool 调用与结果之间切断", () => {
   const groups = splitMessages(msgs, 20000);
   for (const g of groups) assert.notEqual(g.messages[0]?.role, "tool", "chunk 不能以 tool 消息开头");
   assert.equal(groups.flatMap((g) => g.messages).length, msgs.length);
+});
+
+console.log("align");
+check("无 system 前置时分片与 seq 一一对应", () => {
+  const items = [
+    { tokens: 10, summary: "s1", messages: [{ role: "user" }, { role: "assistant" }] },
+    { tokens: 10, summary: "s2", messages: [{ role: "user" }] },
+  ];
+  const chunks = alignChunks(items, [10, 11, 12]);
+  assert.equal(chunks.length, 2);
+  assert.deepEqual(chunks[0].seqs, [10, 11]);
+  assert.deepEqual(chunks[1].seqs, [12]);
+});
+check("有 system 前置时跳过它，不错位一格", () => {
+  const items = [
+    { tokens: 10, summary: "s1", messages: [{ role: "system" }, { role: "user" }, { role: "assistant" }] },
+    { tokens: 10, summary: "s2", messages: [{ role: "user" }] },
+  ];
+  const chunks = alignChunks(items, [10, 11, 12]);
+  assert.deepEqual(chunks[0].seqs, [10, 11]);
+  assert.equal(chunks[0].messages[0].role, "user", "system head 不参与记账");
+  assert.deepEqual(chunks[1].seqs, [12]);
+});
+check("消息多于 seq 时从头部丢弃多余前缀", () => {
+  const items = [{ tokens: 1, summary: "s", messages: [{ role: "system" }, { role: "user" }] }];
+  const chunks = alignChunks(items, [5]);
+  assert.deepEqual(chunks[0].seqs, [5]);
+  assert.deepEqual(chunks[0].messages.map((m) => m.role), ["user"]);
 });
 
 console.log(`\n${pass} checks passed`);
