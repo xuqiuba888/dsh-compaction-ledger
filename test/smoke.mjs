@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { resolveBudget, resolveSpec, parseLimit, retrievalCap } from "../lib/budget.js";
 import { Ledger } from "../lib/ledger.js";
 import { planRange, planChunks } from "../lib/fold.js";
+import { splitMessages } from "../lib/index.js";
 
 let pass = 0;
 const check = (name, fn) => { fn(); pass += 1; console.log(`  ok  ${name}`); };
@@ -83,6 +84,18 @@ check("超大单条按行切", () => {
   const chunks = planChunks([big], { maxChunkTokens: 30_000 });
   assert.ok(chunks.length > 1);
   assert.ok(chunks.every((c) => c.tokens <= 30_000));
+});
+
+check("分片不在 tool 调用与结果之间切断", () => {
+  const msgs = [
+    { role: "user", content: [{ type: "text", text: "u".repeat(2000) }] },
+    { role: "assistant", content: [{ type: "tool-call", id: "a", name: "bash", arguments: "{}" }] },
+    { role: "tool", toolCallId: "a", content: [{ type: "text", text: "r".repeat(80000) }] },
+    { role: "assistant", content: [{ type: "text", text: "done" }] },
+  ];
+  const groups = splitMessages(msgs, 20000);
+  for (const g of groups) assert.notEqual(g.messages[0]?.role, "tool", "chunk 不能以 tool 消息开头");
+  assert.equal(groups.flatMap((g) => g.messages).length, msgs.length);
 });
 
 console.log(`\n${pass} checks passed`);

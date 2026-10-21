@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## 0.1.4 — 2026-10-21 — 修复分片切断 tool-call/tool-result 配对
+
+**现象**：手动 `/compact` 返回
+`Compaction could not produce a useful summary. The attempt is recorded in the session log.`
+会话日志里的真实错误是：
+
+```
+compaction/end { "error": "DeepSeek Messages tool calls need immediate results" }
+```
+
+**根因**：`splitMessages` 只按 token 数切片，切点可能落在
+`assistant(tool-call)` 与紧随其后的 `tool(result)` 之间。上游（Anthropic 兼容线）
+要求每个 tool_use 必须被**紧邻**的 tool_result 应答，于是每一次摘要调用都 400，
+整次压缩被判失败。基类的 `selectCompactableRange` 只在**区间层面**保证配对，
+管不到区间内部的分片。
+
+**修复**：切点只允许落在**非 tool 消息**之前；tool 结果一律留在当前片内。
+另加兜底——若某片首条仍是 tool 消息（区间起点异常），并入前一片而不是独立成片。
+
+**测试**：新增断言「分片不在 tool 调用与结果之间切断」，共 13 项全过。
+
 ## 0.1.3 — 2026-10-21 — 修复构造函数连环崩溃（会导致整个会话层不可用）
 
 **现象**：升级到 0.1.2 后 `dsh web` 启动失败，新建会话与恢复旧会话全部失败。
