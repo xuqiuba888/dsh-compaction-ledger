@@ -1,6 +1,6 @@
 {
   "name": "dsh-compaction-ledger",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "In-process compaction engine for DeepSeek Harness with a SQLite ledger and bounded retrieval tools.",
   "type": "module",
   "main": "lib/index.js",
