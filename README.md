@@ -136,3 +136,7 @@ dsh plugin --profile web add file:./dsh-compaction-ledger-<新版本>.tgz
 ```
 
 插件启动时也会自检：快照盖章的 dsh 版本与当前运行的 `@deepseek-ai/dsh-base` 版本不一致时，日志里会打一行 `compaction-ledger: preset 快照来自 dsh X，当前运行 Y …`。
+
+## 变更记录
+
+见 [CHANGELOG.md](./CHANGELOG.md)。
